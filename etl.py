@@ -1,3 +1,4 @@
+from cgi import print_environ_usage
 import configparser
 from datetime import datetime
 import os
@@ -8,24 +9,11 @@ from pyspark.sql.functions import year, month, dayofmonth, hour, weekofyear, dat
 import glob
 
 config = configparser.ConfigParser()
-config.read('dl.cfg')
+config.read_file(open('dl.cfg'))
 
-os.environ['AWS_ACCESS_KEY_ID']=config['AWS_ACCESS_KEY_ID']
-os.environ['AWS_SECRET_ACCESS_KEY']=config['AWS_SECRET_ACCESS_KEY']
+os.environ["AWS_ACCESS_KEY_ID"]= config['AWS']['AWS_ACCESS_KEY_ID']
+os.environ["AWS_SECRET_ACCESS_KEY"]= config['AWS']['AWS_SECRET_ACCESS_KEY']
 
-def get_files(filepath):
-    """
-        Get all the file names with each directory in given filepath
-        Keyword arguments:
-        filepath -- path where data is stored   
-        
-    """
-    all_files = []
-    for root, dirs, files in os.walk(filepath):
-        files = glob.glob(os.path.join(root,'*.json'))
-        for f in files :
-            all_files.append(os.path.abspath(f))
-    return all_files
 
 def create_spark_session():
     spark = SparkSession \
@@ -36,12 +24,21 @@ def create_spark_session():
 
 
 def process_song_data(spark, input_data, output_data):
+    """
+    Description: This function loads song_data from S3 and processes it by extracting the songs and artist tables
+                and then again loaded back to S3
+        
+    Parameters:
+            spark       : Spark Session
+            input_data  : location of song_data json files with the songs metadata
+            output_data : S3 bucket were dimensional tables in parquet format will be stored
+    """
     # get filepath to song data file
-    song_data = get_files(f'{input_data}/song_data')
+    song_data  = os.path.join(input_data, "song_data/A/A/A/*.json")
     
     # read song data file
     df = spark.read.json(song_data)
-
+    print(df.count())
     # extract columns to create songs table
     songs_table = df.select(['song_id','title','artist_id','year','duration'])
     songs_table = songs_table.dropDuplicates(['song_id'])
@@ -59,8 +56,18 @@ def process_song_data(spark, input_data, output_data):
 
 
 def process_log_data(spark, input_data, output_data):
+    """
+        Description: This function loads log_data from S3 and processes it by extracting the songs and artist tables
+                    and then again loaded back to S3. Also output from previous function is used in by spark.read.json command
+        
+        Parameters:
+            spark       : Spark Session
+            input_data  : location of log_data json files with the events data
+            output_data : S3 bucket were dimensional tables in parquet format will be stored
+            
+    """
     # get filepath to log data file
-    log_data = get_files(f'{input_data}/log_data')
+    log_data = os.path.join(input_data,"log_data/*/*/*.json")
 
     # read log data file
     df =  spark.read.json(log_data)
@@ -97,7 +104,7 @@ def process_log_data(spark, input_data, output_data):
     time_table.write.parquet(os.path.join(output_data,'time.parquet'),'overwrite')
 
     # read in song data to use for songplays table
-    song_df = spark.read.json(get_files(f'{input_data}/song_data'))
+    song_df = spark.read.json(os.path.join(input_data, "song-data/A/A/A/*.json"))
 
     # extract columns from joined song and log datasets to create songplays table 
     df = df.join(song_df, song_df.title == df.song)
@@ -107,7 +114,7 @@ def process_log_data(spark, input_data, output_data):
         col('level').alias('level'),
         col('song_id').alias('song_id'),
         col('artist_id').alias('artist_id'),
-        col('ssessionId').alias('session_id'),
+        col('sessionId').alias('session_id'),
         col('location').alias('location'),
         col('userAgent').alias('user_agent'),
         col('year').alias('year'),
@@ -120,6 +127,9 @@ def process_log_data(spark, input_data, output_data):
 
 
 def main():
+    """
+    Extract songs and events data from S3, Transform it into dimensional tables format, and Load it back to S3 in Parquet format
+    """
     spark = create_spark_session()
     input_data = "s3a://udacity-dend/"
     output_data = "s3a://datalakeyangsun/"
